@@ -11,14 +11,14 @@
  * can `consume` keys — gated on `getEditorText() === ""` so normal typing is untouched.
  */
 
-import { isKeyRelease, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { isKeyRelease, Key, matchesKey, type ScrollViewScrollbar, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { hasAgentBadge, renderAgentName } from "../agent-color.js";
 import { type AgentManager, isTopLevelAgent } from "../agent-manager.js";
 import type { AgentRecord, ViewerMarkdownMode } from "../types.js";
 import { getLifetimeCost, getLifetimeTotal } from "../usage.js";
 import { pickAgentView } from "./agent-views.js";
 import { type AgentActivity, formatCost, type Theme } from "./agent-widget.js";
-import { ConversationViewer, VIEWPORT_HEIGHT_PCT } from "./conversation-viewer.js";
+import { ConversationViewer, getConversationOverlayOptions, type ViewerBackgroundAction } from "./conversation-viewer.js";
 
 /** Widget key for the below-editor fleet list. */
 const FLEET_KEY = "fleet";
@@ -145,6 +145,13 @@ export class FleetList {
      * point. Omitted → `m` still cycles, viewer-locally.
      */
     private onViewerMarkdown?: (mode: ViewerMarkdownMode) => void,
+    private scrollbarMode: () => ScrollViewScrollbar = () => "auto",
+    /**
+     * The viewer's `b` for this row's run, supplied by the extension: only it
+     * knows which runs have a tool call waiting to be released, and it owns the
+     * widget this list shares with. Omitted → no `b` affordance.
+     */
+    private backgroundAction?: (record: AgentRecord, notify: (message: string) => void) => ViewerBackgroundAction,
   ) {}
 
   // ---- Lifecycle ----
@@ -370,7 +377,7 @@ export class FleetList {
    * peek: unknowable focus (no tui seen yet, nothing focused) counts as the
    * editor so activation keeps working.
    */
-  private editorHasFocus(): boolean {
+  editorHasFocus(): boolean {
     const focused = (this.tui as { focusedComponent?: unknown } | undefined)?.focusedComponent;
     if (focused == null) return true;
     const c = focused as { getText?: unknown; setText?: unknown };
@@ -427,9 +434,11 @@ export class FleetList {
     }
     const activity = this.agentActivity.get(record.id);
     this.viewingAgentId = record.id;
+    let overlayOptions = getConversationOverlayOptions({ mode: "regular" });
 
     void this.ui.custom<undefined>(
       (tui, theme, keybindings, done) => {
+        overlayOptions = getConversationOverlayOptions(tui);
         this.viewerClose = () => done(undefined);
         return new ConversationViewer(
           tui,
@@ -446,12 +455,14 @@ export class FleetList {
           this.showCost(),
           this.viewerMarkdown,
           this.onViewerMarkdown,
+          this.scrollbarMode(),
+          this.backgroundAction?.(record, message => this.ui?.notify(message, "info")),
           chosen,
         );
       },
       {
         overlay: true,
-        overlayOptions: { anchor: "center", width: "90%", maxHeight: `${VIEWPORT_HEIGHT_PCT}%` },
+        overlayOptions: () => overlayOptions,
       },
     ).then(() => this.clearViewer(), () => this.clearViewer());
   }

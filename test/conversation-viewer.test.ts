@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRecord } from "../src/types.js";
+import type { ViewerBackgroundAction } from "../src/ui/conversation-viewer.js";
 
 // ── Mock wrapTextWithAnsi ──────────────────────────────────────────────
 // We need to control what wrapTextWithAnsi returns to simulate the
@@ -820,6 +821,64 @@ describe("ConversationViewer", () => {
     });
   });
 
+  describe("background key", () => {
+    const W = 80;
+
+    const backgroundViewer = (record: AgentRecord, action?: ViewerBackgroundAction, width = W) =>
+      new ConversationViewer(
+        mockTui(30, width), mockSession([]), record, undefined, ansiTheme(),
+        vi.fn(), vi.fn(), undefined, vi.fn(), false, undefined, undefined, "auto", action,
+      );
+
+    /** An action available until it is sent, as the extension's is. */
+    const oneShotAction = () => {
+      let available = true;
+      const send = vi.fn(() => { available = false; });
+      return { available: () => available, send };
+    };
+
+    it("offers b while the owner says the run can be handed off, and sends once", () => {
+      const action = oneShotAction();
+      const viewer = backgroundViewer(mockRecord({ status: "running" }), action);
+
+      expect(viewer.render(W).join("\n")).toContain("b bg");
+      viewer.handleInput("b");
+      expect(action.send).toHaveBeenCalledTimes(1);
+
+      expect(viewer.render(W).join("\n")).not.toContain("b bg");
+      viewer.handleInput("b");
+      expect(action.send).toHaveBeenCalledTimes(1);
+    });
+
+    it("hides and ignores b when the owner says it is unavailable", () => {
+      // The record alone cannot say: a blocking, running agent-generator spawn
+      // has no tool call to release. Only the owner's answer counts.
+      const send = vi.fn();
+      const viewer = backgroundViewer(
+        mockRecord({ status: "running", blocking: true }), { available: () => false, send },
+      );
+      expect(viewer.render(W).join("\n")).not.toContain("b bg");
+      viewer.handleInput("b");
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it("omits b entirely when no action is supplied", () => {
+      const viewer = backgroundViewer(mockRecord({ status: "running", blocking: true }), undefined);
+      expect(viewer.render(W).join("\n")).not.toContain("b bg");
+      expect(() => viewer.handleInput("b")).not.toThrow();
+    });
+
+    it("keeps the footer within width at 80 columns with every action showing", () => {
+      const viewer = backgroundViewer(mockRecord({ status: "running" }), oneShotAction(), 80);
+      const lines = viewer.render(80);
+      const footer = lines.find(l => l.includes("b bg"));
+      expect(footer).toBeDefined();
+      expect(footer).toContain("Enter steer");
+      expect(footer).toContain("x stop");
+      assertAllLinesFit(lines, 80);
+    });
+  });
+
   describe("steer composer", () => {
     const W = 80;
 
@@ -928,7 +987,7 @@ describe("ConversationViewer views", () => {
         lifetimeUsage: { input: 1000, output: 200, cacheWrite: 0, cost: 0.0042 },
         invocation: { modelName: "sonnet 4.6", modelId: "anthropic/claude-sonnet-4-6", thinking: "high" },
         ...over,
-      }), undefined, theme, vi.fn(), undefined, undefined, undefined, true, undefined, undefined, initialView,
+      }), undefined, theme, vi.fn(), undefined, undefined, undefined, true, undefined, undefined, undefined, undefined, initialView,
     );
   }
 
@@ -981,7 +1040,7 @@ describe("ConversationViewer views", () => {
     const done = vi.fn();
     const v = new ConversationViewer(
       mockTui(30, 80), mockSession([]), mockRecord({ prompt: "hello", result: "bye" }),
-      undefined, theme, done, undefined, undefined, undefined, false, undefined, undefined, "transcript",
+      undefined, theme, done, undefined, undefined, undefined, false, undefined, undefined, undefined, undefined, "transcript",
     );
     v.handleInput("p");
     expect(strip(v.render(80).join("\n"))).toContain("Prompt");

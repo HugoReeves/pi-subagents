@@ -23,7 +23,11 @@ Those two ways work in:
 
 The name is **Info**, not Stats. Transcript is `t` so it does not collide with workflow Skip (`s`).
 
-The spawn prompt is stored on the agent record. Turn counts are not stored and not shown.
+The spawn prompt is stored on the agent record. Info does not show turn counts.
+
+The views work in both regular and fullscreen modes. Fullscreen mouse scrolling keeps each view's scroll position and follow state. Prompt, Info, and Output start at the top, including when an empty Output receives its result. Transcript alone shows the new-message indicator; switching views preserves its unread count.
+
+The foreground-to-background action (`b`) remains available in every view when the run supports it. Markdown (`m`) remains Transcript-only.
 
 ## 2. Problem
 
